@@ -120,6 +120,8 @@ class GptContrastivePretrainModule(pl.LightningModule):
     def contrastive_loss_gpt(self, predictions, labels_embeddings, seq_len_mask, is_train_step, margin=0.5):
         loss = 0
 
+        seq_len_mask = seq_len_mask[:, self.hparams.seed_seq_len+1:]
+        
         y_pred = self.head(predictions[:, self.hparams.seed_seq_len:-1, :])
 
         y_positive = labels_embeddings[:, self.hparams.seed_seq_len+1:]
