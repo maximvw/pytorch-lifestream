@@ -84,8 +84,8 @@ class GptContrastivePretrainModule(pl.LightningModule):
         self._seq_encoder = seq_encoder
         self._seq_encoder.is_reduce_sequence = False
 
-        self.head = Head(input_size=self._seq_encoder.embedding_size, hidden_size=head_hidden_size, n_classes=self.trx_encoder.output_size)
-    
+        self.head = Head(input_size=seq_encoder.embedding_size, hidden_size=head_hidden_size, n_classes=trx_encoder.output_size)
+        print(seq_encoder.embedding_size, head_hidden_size, trx_encoder.output_size)
         if self.hparams.norm_predict:
             self.fn_norm_predict = PBL2Norm()
 
