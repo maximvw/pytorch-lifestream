@@ -85,7 +85,7 @@ class GptContrastivePretrainModule(pl.LightningModule):
         self._seq_encoder.is_reduce_sequence = False
 
         self.head = Head(input_size=seq_encoder.embedding_size, hidden_size=head_hidden_size, n_classes=trx_encoder.output_size)
-        print(seq_encoder.embedding_size, head_hidden_size, trx_encoder.output_size)
+
         if self.hparams.norm_predict:
             self.fn_norm_predict = PBL2Norm()
 
@@ -125,7 +125,7 @@ class GptContrastivePretrainModule(pl.LightningModule):
         y_pred = self.head(predictions[:, self.hparams.seed_seq_len:-1, :])
 
         y_positive = labels_embeddings[:, self.hparams.seed_seq_len+1:]
-        print(y_pred.shape, y_positive.shape, 'shapes')
+
         loss += ((y_pred - y_positive).pow(2) * seq_len_mask[:, :, None]).sum() /  seq_len_mask.sum()
 
         for _ in range(self.n_neg):
