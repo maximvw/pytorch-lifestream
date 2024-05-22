@@ -106,7 +106,7 @@ class GptContrastivePretrainModule(pl.LightningModule):
     def gen_neg_sample(self, labels_embeddings, seq_len_mask):
         neg_sample = torch.zeros(labels_embeddings.shape)
 
-        neg_sample = torch.zeros(labels_embeddings.shape)
+        neg_sample = torch.zeros(labels_embeddings.shape).to(labels_embeddings.device)
 
         batch_size, seq_len, hid = labels_embeddings.shape
 
