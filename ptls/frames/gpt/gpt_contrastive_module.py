@@ -114,7 +114,7 @@ class GptContrastivePretrainModule(pl.LightningModule):
 
             neg_row_idx = (torch.arange(batch_size) + np.random.randint(1, batch_size)) % batch_size
 
-            neg_emb_positions = np.random.randint(0, seq_len_mask[neg_row_idx].sum(dim=1))
+            neg_emb_positions = np.random.randint(0, seq_len_mask[neg_row_idx].sum(dim=1).cpu())
 
             neg_sample[:, j, :] = labels_embeddings[neg_row_idx, neg_emb_positions]
         return neg_sample
