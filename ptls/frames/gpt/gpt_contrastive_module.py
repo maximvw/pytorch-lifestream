@@ -108,32 +108,36 @@ class GptContrastivePretrainModule(pl.LightningModule):
 
         neg_sample = torch.zeros(labels_embeddings.shape).to(labels_embeddings.device)
 
-        batch_size, seq_len, hid = labels_embeddings.shape
+        batch_size, seq_len, _ = labels_embeddings.shape
 
         for j in range(seq_len):
-
             neg_row_idx = (torch.arange(batch_size) + np.random.randint(1, batch_size)) % batch_size
 
             neg_emb_positions = np.random.randint(0, seq_len_mask[neg_row_idx].sum(dim=1).cpu())
-
+            
             neg_sample[:, j, :] = labels_embeddings[neg_row_idx, neg_emb_positions]
-        return neg_sample
+        return neg_sample * seq_len_mask[:, :, None]
 
-    def contrastive_loss_gpt(self, predictions, labels_embeddings, seq_len_mask, is_train_step, margin=0.5):
+    def contrastive_loss_gpt(self, predictions, labels_embeddings, seq_len_mask, is_train_step):
         loss = 0
-
-        seq_len_mask = seq_len_mask[:, self.hparams.seed_seq_len+1:]
+        batch_size, seq_len, hid = labels_embeddings.shape
+        seq_len = seq_len - self.hparams.seed_seq_len - 1
         
-        y_pred = self.head(predictions[:, self.hparams.seed_seq_len:-1, :])
-
+        y_pred = self.head(predictions[:, self.hparams.seed_seq_len:-1, :]) * seq_len_mask[:, self.hparams.seed_seq_len+1:, None]
+        y_pred = y_pred.reshape(batch_size * seq_len, hid)
+            
         y_positive = labels_embeddings[:, self.hparams.seed_seq_len+1:]
-
-        loss += ((y_pred - y_positive).pow(2) * seq_len_mask[:, :, None]).sum(axis=2).pow(0.5).sum() /  seq_len_mask.sum()
-
+        y_positive = y_positive.reshape(batch_size * seq_len, hid)
+        
+        loss += F.pairwise_distance(y_positive, y_pred).pow(2).sum()
+        
         for _ in range(self.n_neg):
             y_negative = self.gen_neg_sample(labels_embeddings, seq_len_mask)[:, self.hparams.seed_seq_len+1:]
-            loss += max(0, margin - (((y_pred - y_negative).pow(2) * seq_len_mask[:, :, None]).sum(axis=2).pow(0.5).sum() /  seq_len_mask.sum()))
-
+            y_negative = y_negative.reshape(batch_size * seq_len, hid)
+            
+            loss += F.relu(
+                self.margin - F.pairwise_distance(y_pred, y_negative)
+            ).pow(2).sum()
         return loss
 
     def training_step(self, batch, batch_idx):
@@ -141,7 +145,7 @@ class GptContrastivePretrainModule(pl.LightningModule):
         seq_len_mask = batch.seq_len_mask
         out = out.payload if isinstance(out, PaddedBatch) else out
 
-        contrastive_loss_gpt = self.contrastive_loss_gpt(out, labels_embeddings, batch.seq_len_mask, is_train_step=True, margin=self.margin)
+        contrastive_loss_gpt = self.contrastive_loss_gpt(out, labels_embeddings, batch.seq_len_mask, is_train_step=True)
         self.train_gpt_loss(contrastive_loss_gpt)
         self.log(f'gpt/contrastive_loss', contrastive_loss_gpt, sync_dist=True)
         return contrastive_loss_gpt
@@ -150,7 +154,7 @@ class GptContrastivePretrainModule(pl.LightningModule):
         out, labels_embeddings = self.forward(batch)  # PB: B, T, H
         out = out.payload if isinstance(out, PaddedBatch) else out
 
-        contrastive_loss_gpt = self.contrastive_loss_gpt(out, labels_embeddings,  batch.seq_len_mask, is_train_step=False, margin=self.margin)
+        contrastive_loss_gpt = self.contrastive_loss_gpt(out, labels_embeddings,  batch.seq_len_mask, is_train_step=False)
         self.valid_gpt_loss(contrastive_loss_gpt)
 
     def on_training_epoch_end(self):
