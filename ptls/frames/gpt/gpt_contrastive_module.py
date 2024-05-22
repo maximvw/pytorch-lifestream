@@ -128,11 +128,11 @@ class GptContrastivePretrainModule(pl.LightningModule):
 
         y_positive = labels_embeddings[:, self.hparams.seed_seq_len+1:]
 
-        loss += ((y_pred - y_positive).pow(2) * seq_len_mask[:, :, None]).sum() /  seq_len_mask.sum()
+        loss += ((y_pred - y_positive).pow(2) * seq_len_mask[:, :, None]).sum(axis=2).pow(0.5).sum() /  seq_len_mask.sum()
 
         for _ in range(self.n_neg):
             y_negative = self.gen_neg_sample(labels_embeddings, seq_len_mask)[:, self.hparams.seed_seq_len+1:]
-            loss += margin - (((y_pred - y_negative).pow(2) * seq_len_mask[:, :, None]).sum() /  seq_len_mask.sum())
+            loss += margin - (((y_pred - y_negative).pow(2) * seq_len_mask[:, :, None]).sum(axis=2).pow(0.5).sum() /  seq_len_mask.sum())
 
         return loss
 
