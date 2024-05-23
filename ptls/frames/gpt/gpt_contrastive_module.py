@@ -139,7 +139,7 @@ class GptContrastivePretrainModule(pl.LightningModule):
             loss += F.relu(
                 self.margin - F.pairwise_distance(y_pred, y_negative)
             ).pow(2).sum()
-        return loss
+        return loss / 10
 
     def training_step(self, batch, batch_idx):
         out, labels_embeddings = self.forward(batch)  # PB: B, T, H
@@ -168,19 +168,14 @@ class GptContrastivePretrainModule(pl.LightningModule):
 
     def configure_optimizers(self):
         optim = torch.optim.NAdam(self.parameters(),
-                                 lr=self.hparams.max_lr,
+                                 lr=self.hparams.lr,
                                  weight_decay=self.hparams.weight_decay,
                                  )
-        scheduler = torch.optim.lr_scheduler.OneCycleLR(
+        
+        scheduler = torch.optim.lr_scheduler.StepLR(
             optimizer=optim,
-            max_lr=self.hparams.max_lr,
-            total_steps=self.hparams.total_steps,
-            pct_start=self.hparams.pct_start,
-            anneal_strategy='cos',
-            cycle_momentum=False,
-            div_factor=25.0,
-            final_div_factor=10000.0,
-            three_phase=False,
+            step_size=self.hparams.step_size,
+            gamma=self.hparams.gamma
         )
         scheduler = {'scheduler': scheduler, 'interval': 'step'}
         return [optim], [scheduler]
