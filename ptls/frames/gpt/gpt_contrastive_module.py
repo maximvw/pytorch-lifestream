@@ -59,6 +59,9 @@ class GptContrastivePretrainModule(pl.LightningModule):
         'out_stat' - min, max, mean, std statistics pooled from `seq_encoder` layer (B, H) -> (B, 4H)
         'trx_stat' - min, max, mean, std statistics pooled from `trx_encoder` layer (B, H) -> (B, 4H)
         'trx_stat_out' - min, max, mean, std statistics pooled from `trx_encoder` layer + 'out' from `seq_encoder` (B, H) -> (B, 5H)
+    neg_sample:
+        'simple' - random negative sample from other sequences of same batch
+        'random' - random negative sample from vocabulary of feature
     """
 
     def __init__(self,
@@ -75,7 +78,8 @@ class GptContrastivePretrainModule(pl.LightningModule):
                  norm_predict: bool = False,
                  inference_pooling_strategy: str = 'out_stat',
                  n_neg: int = 1,
-                 margin: float = 0.5
+                 margin: float = 0.5,
+                 neg_sample: str = 'simple'
                  ):
 
         super().__init__()
@@ -98,6 +102,7 @@ class GptContrastivePretrainModule(pl.LightningModule):
 
         self.n_neg = n_neg
         self.margin = margin
+        self.neg_sample = neg_sample
 
     def forward(self, batch: PaddedBatch):
         z_trx = self.trx_encoder(batch) 
@@ -106,7 +111,7 @@ class GptContrastivePretrainModule(pl.LightningModule):
             out = self.fn_norm_predict(out)
         return out, z_trx.payload
 
-    def gen_neg_sample(self, labels_embeddings, seq_len_mask):
+    def gen_simple_neg_sample(self, labels_embeddings, seq_len_mask):
         neg_sample = torch.zeros(labels_embeddings.shape)
 
         neg_sample = torch.zeros(labels_embeddings.shape).to(labels_embeddings.device)
@@ -121,8 +126,18 @@ class GptContrastivePretrainModule(pl.LightningModule):
             neg_sample[:, j, :] = labels_embeddings[neg_row_idx, neg_emb_positions]
         return neg_sample * seq_len_mask[:, :, None]
 
-    def contrastive_loss_gpt(self, predictions, labels_embeddings, seq_len_mask, is_train_step):
+    def gen_random_neg_batch(self, batch):
+        out = {}
+        for feature in self.trx_encoder.embeddings.keys():
+            batch_feat = batch.payload[feature]
+            new_batch = torch.randint_like(batch_feat, 1, self.trx_encoder.embeddings[feature].num_embeddings).to(batch.device) * batch.seq_len_mask
+            out[feature] = new_batch
+        return self.trx_encoder(PaddedBatch(out, batch.seq_lens)).payload
+
+    def contrastive_loss_gpt(self, predictions, batch, is_train_step):
         loss = 0
+        labels_embeddings, seq_len_mask = self.trx_encoder(batch).payload, batch.seq_len_mask
+        
         batch_size, seq_len, hid = labels_embeddings.shape
         seq_len = seq_len - self.hparams.seed_seq_len - 1
         
@@ -135,12 +150,17 @@ class GptContrastivePretrainModule(pl.LightningModule):
         loss += F.pairwise_distance(y_positive, y_pred).pow(2).sum()
         
         for _ in range(self.n_neg):
-            y_negative = self.gen_neg_sample(labels_embeddings, seq_len_mask)[:, self.hparams.seed_seq_len+1:]
+            if self.neg_sample == 'simple':
+                y_negative = self.gen_simple_neg_sample(labels_embeddings, seq_len_mask)[:, self.hparams.seed_seq_len+1:]
+            elif self.neg_sample == 'random':
+                y_negative = self.gen_random_neg_sample(batch)[:, self.hparams.seed_seq_len+1:]
+            else:
+                raise Exception('neg_sample must be in list: [simple, random]')
             y_negative = y_negative.reshape(batch_size * seq_len, hid)
             
-            loss += F.relu(
+            loss += (F.relu(
                 self.margin - F.pairwise_distance(y_pred, y_negative)
-            ).pow(2).sum()
+            ).pow(2) * seq_len_mask[:, self.hparams.seed_seq_len+1:].reshape(-1).sum()
         return loss / 10
 
     def training_step(self, batch, batch_idx):
