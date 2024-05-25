@@ -126,7 +126,7 @@ class GptContrastivePretrainModule(pl.LightningModule):
             neg_sample[:, j, :] = labels_embeddings[neg_row_idx, neg_emb_positions]
         return neg_sample * seq_len_mask[:, :, None]
 
-    def gen_random_neg_batch(self, batch):
+    def gen_random_neg_sample(self, batch):
         out = {}
         for feature in self.trx_encoder.embeddings.keys():
             batch_feat = batch.payload[feature]
