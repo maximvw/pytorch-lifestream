@@ -160,7 +160,7 @@ class GptContrastivePretrainModule(pl.LightningModule):
             
             loss += (F.relu(
                 self.margin - F.pairwise_distance(y_pred, y_negative)
-            ).pow(2) * seq_len_mask[:, self.hparams.seed_seq_len+1:].reshape(-1).sum()
+            ).pow(2) * seq_len_mask[:, self.hparams.seed_seq_len+1:].reshape(-1)).sum()
         return loss / 10
 
     def training_step(self, batch, batch_idx):
