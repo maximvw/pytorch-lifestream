@@ -109,7 +109,7 @@ class GptContrastivePretrainModule(pl.LightningModule):
         out = self._seq_encoder(z_trx)
         if self.hparams.norm_predict:
             out = self.fn_norm_predict(out)
-        return out, z_trx.payload
+        return out
 
     def gen_simple_neg_sample(self, labels_embeddings, seq_len_mask):
         neg_sample = torch.zeros(labels_embeddings.shape)
@@ -164,20 +164,19 @@ class GptContrastivePretrainModule(pl.LightningModule):
         return loss / 10
 
     def training_step(self, batch, batch_idx):
-        out, labels_embeddings = self.forward(batch)  # PB: B, T, H
-        seq_len_mask = batch.seq_len_mask
+        out = self.forward(batch)  # PB: B, T, H
         out = out.payload if isinstance(out, PaddedBatch) else out
 
-        contrastive_loss_gpt = self.contrastive_loss_gpt(out, labels_embeddings, batch.seq_len_mask, is_train_step=True)
+        contrastive_loss_gpt = self.contrastive_loss_gpt(out, batch, is_train_step=True)
         self.train_gpt_loss(contrastive_loss_gpt)
         self.log(f'gpt/contrastive_loss', contrastive_loss_gpt, sync_dist=True)
         return contrastive_loss_gpt
 
     def validation_step(self, batch, batch_idx):
-        out, labels_embeddings = self.forward(batch)  # PB: B, T, H
+        out = self.forward(batch)  # PB: B, T, H
         out = out.payload if isinstance(out, PaddedBatch) else out
 
-        contrastive_loss_gpt = self.contrastive_loss_gpt(out, labels_embeddings,  batch.seq_len_mask, is_train_step=False)
+        contrastive_loss_gpt = self.contrastive_loss_gpt(out, batch, is_train_step=False)
         self.valid_gpt_loss(contrastive_loss_gpt)
 
     def on_training_epoch_end(self):
